@@ -114,7 +114,7 @@ Each of these is just naming something you already saw above.
 - **The diagram's identity (`diagramId`) is computed from the §3 authored source — before step (b)'s rewrite, never after.** That's why clicking never changes `diagramId`: `hash:12o4ffl` is the same in both JSON blobs above. (Code: [identity.ts](src/identity.ts). If you compute it from the *rewritten* text instead, every toggle would look like a different diagram and state would never be found again on the next click — this is the one mistake that breaks everything else.)
 - **Collapse state lives outside the diagram text, full stop.** You will never find `"collapsed": true` anywhere inside a `.mmd` file — it only exists in whatever the adapter is backed by (`localStorage` in this example). The authored source in step 3 is identical before and after every click.
 - **The rewrite replaces, never appends, a second `@{ view: ... }` line for the same id.** If the diagram already had an authored `mySub@{ view: expanded }` line, clicking to collapse it would edit that line in place, not add a second, conflicting statement for `mySub`. (Code: [rewrite.ts](src/rewrite.ts) — see the "replaces an existing metadata line" test.)
-- **No stored state = fall back to whatever §1/§2 already said.** If the author already wrote `view: collapsed` and nobody has clicked yet, it renders collapsed — the plugin doesn't silently override an author's explicit default.
+- **No stored state = fall back to whatever §1/§2 already said.** If the author already wrote `view: collapsed` and nobody has clicked yet, it renders collapsed — the plugin doesn't silently override an author's explicit default. And if *nobody* said anything, it's expanded — see §6.1, which makes that a hard guarantee rather than an incidental behavior.
 
 ## 5. Nested subgraphs
 
@@ -149,7 +149,47 @@ What's genuinely still open after this:
 - Id-substring collision gets a little more likely to bite as diagrams grow more subgraphs (e.g. an id `sub` is a substring of a sibling id `subOuter`) — this was already a latent risk in `resolveClickedSubgraphId`'s `.includes()` check before nesting entered the picture; nesting doesn't introduce it so much as give you more ids to accidentally collide.
 - No "collapse all" / "expand all" convenience — right now toggling is strictly one subgraph at a time, however deep. A cascading helper would be new code on top of what exists, not something nesting forces.
 
-## 6. Reference (for implementing against this, not for reading first)
+## 6. Backward compatibility (non-negotiable)
+
+Two hard rules. Both are enforced by tests in [test/resolve.test.ts](test/resolve.test.ts), so they break loudly rather than quietly.
+
+### 6.1 Unspecified means EXPANDED, never collapsed
+
+```mermaid
+flowchart TD
+  subgraph mySub["Details"]
+    A --> B
+  end
+  Start --> mySub
+```
+
+Nobody has authored a `view:` line. Nobody has clicked. **This must render fully expanded** — exactly as it did before this package, or mermaid's collapse feature, existed. "No information" is never an excuse to hide someone's diagram contents.
+
+Concretely, in resolution order (code: [resolve.ts](src/resolve.ts)):
+
+| stored state | authored `@{ view: ... }` | result |
+|---|---|---|
+| `collapsed: true` | anything | collapsed |
+| `collapsed: false` | anything | expanded |
+| none | `collapsed` | collapsed (author's default, §4's last rule) |
+| none | `expanded` | expanded |
+| **none** | **none** | **expanded** ← the compatibility default |
+
+The corollary matters just as much: with no stored state, `applyOverrides` returns the authored source **byte-identical**, so a diagram that has never been clicked is handed to `mermaid.render()` completely untouched. Adding this package to a page cannot change how any existing diagram looks.
+
+### 6.2 Everything stays valid mermaid 11.17.0 syntax
+
+This package defines no syntax of its own. It reads and writes exactly the `id@{ view: collapsed | expanded }` statement that mermaid `11.17.0` shipped (§2) — nothing more.
+
+That gives three properties worth stating explicitly:
+
+- **Diagrams written for 11.17.0 work here unchanged.** An authored `mySub@{ view: collapsed }` is respected as the starting state, not overwritten or ignored.
+- **What this package generates is plain vanilla mermaid.** The "effective source" from §3(b) can be copied into mermaid.live, a GitHub code fence, or any other 11.17.0+ renderer and produces the same picture. There is no dialect, no superset, no preprocessing step anyone else has to replicate.
+- **The state store holds no syntax.** It holds booleans keyed by ids (§3(a)). Delete the entire state store and every diagram falls back to §6.1 — still renders, just without anyone's remembered choices.
+
+The `id:` frontmatter field from "Reference → Diagram identity" is optional and additive: a diagram without it gets a content hash instead, so no existing diagram needs editing to work with this.
+
+## 7. Reference (for implementing against this, not for reading first)
 
 If you're building a second implementation of this contract (e.g. a native, incrementally-relaid-out renderer instead of this package's full-rewrite approach) — match these, and diagrams/state stay portable between the two. If you're just using the package, you don't need this section; §1–4 already told you everything that matters.
 

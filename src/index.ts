@@ -4,6 +4,7 @@ export type { CollapseState, CollapseSource } from './types.js';
 export { computeDiagramId } from './identity.js';
 
 export { applyOverrides, readAuthoredViews } from './rewrite.js';
+export { resolveCollapsed } from './resolve.js';
 export type { ViewOverride } from './rewrite.js';
 
 export type { CollapseStateAdapter } from './storage/types.js';

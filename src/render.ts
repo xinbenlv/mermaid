@@ -3,6 +3,7 @@ import { applyOverrides, readAuthoredViews, type ViewOverride } from './rewrite.
 import { makeCollapseState } from './types.js';
 import type { CollapseStateAdapter } from './storage/types.js';
 import { dispatchToggle, dispatchChange } from './events.js';
+import { resolveCollapsed } from './resolve.js';
 
 /**
  * The subset of mermaid's real API this file needs. The actual
@@ -49,10 +50,12 @@ function extractSubgraphIds(authoredSource: string): Set<string> {
  * subgraph `mySub` renders as `<g class="cluster" id="{renderId}-mySub">`,
  * and its collapsed stand-in node's id also contains `mySub`, so the
  * substring match below catches both cases (see README's "Known
- * risks" section for the full round-trip test). Not yet verified on
- * other mermaid versions or with nested subgraphs — if you hit a
- * mismatch, inspect the rendered SVG's ids and tighten `.includes()`
- * to whatever prefix/suffix pattern your version actually uses.
+ * risks" section for the full round-trip test), and for 2 levels of
+ * nested subgraphs (SPEC.md §5 — mermaid renders nested subgraph <g>
+ * elements as DOM siblings, which this walk-up handles correctly).
+ * Not yet verified on other mermaid versions or 3+ nesting levels —
+ * if you hit a mismatch, inspect the rendered SVG's ids and tighten
+ * `.includes()` to whatever prefix/suffix pattern your version uses.
  */
 function resolveClickedSubgraphId(
   start: Element,
@@ -134,7 +137,8 @@ async function handleClick(container: HTMLElement, event: Event): Promise<void> 
   const diagramId = computeDiagramId(authoredSource);
   const existing = await options.adapter.get(diagramId, subgraphId, options.viewerId);
   const authoredViews = readAuthoredViews(authoredSource);
-  const currentlyCollapsed = existing ? existing.collapsed : authoredViews.get(subgraphId) === 'collapsed';
+  // Unspecified => expanded. See SPEC.md §6 and resolve.ts.
+  const currentlyCollapsed = resolveCollapsed(existing, authoredViews, subgraphId);
   const nextCollapsed = !currentlyCollapsed;
 
   dispatchToggle(container, { diagramId, subgraphId, nextCollapsed });

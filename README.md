@@ -34,9 +34,16 @@ await renderCollapsible(document.getElementById('diagram')!, authoredSource, {
 
 Clicking the rendered `mySub` subgraph toggles it between collapsed/expanded and remembers the choice in `localStorage` — reload the page and it comes back the way you left it. See [examples/basic.html](examples/basic.html) for a full runnable page.
 
+## Backward compatibility
+
+Two guarantees, both test-enforced (see [test/resolve.test.ts](test/resolve.test.ts), and SPEC.md §6 for the full table):
+
+1. **Unspecified = expanded, never collapsed.** A subgraph nobody has authored a `view:` line for and nobody has clicked renders fully expanded — identical to how it rendered before this package existed. With no stored state, the authored source is passed to `mermaid.render()` byte-identical.
+2. **No syntax of our own.** This package only reads and writes the `id@{ view: collapsed | expanded }` statement mermaid `11.17.0` already shipped. Diagrams authored for 11.17.0 work here unchanged, and the text this package generates is plain vanilla mermaid that renders the same in mermaid.live, a GitHub code fence, or anything else on 11.17.0+.
+
 ## Status
 
-v0.1, unpublished. Pure-logic pieces (`identity`, `rewrite`, storage adapters) are unit tested and have no DOM/mermaid dependency. The click-target resolution in `render.ts` is **explicitly flagged as unverified** against a live mermaid render — see the comment on `resolveClickedSubgraphId` and the Known risks section below before relying on this anywhere real.
+v0.1, unpublished. Pure-logic pieces (`identity`, `rewrite`, `resolve`, storage adapters) are unit tested and have no DOM/mermaid dependency. The click-target resolution in `render.ts` has been verified against a live mermaid `11.17.2` render — single and 2-level-nested subgraphs, full toggle round trip — but it remains a DOM heuristic; read the Known risks section below for exactly what is and isn't covered before relying on this anywhere real.
 
 ## Known risks / things to verify before real use
 
