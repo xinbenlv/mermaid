@@ -1,0 +1,45 @@
+{
+  "name": "mermaid-collapse-state",
+  "version": "0.1.0",
+  "description": "Interactive click-to-collapse subgraphs for Mermaid flowcharts, with persisted per-viewer state. A wrapper around mermaid's existing `view: collapsed` syntax — no core changes required.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "SPEC.md",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/**/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "mermaid": ">=11.17.0"
+  },
+  "peerDependenciesMeta": {
+    "mermaid": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "typescript": "^5.7.0"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mermaid",
+    "flowchart",
+    "diagram",
+    "collapse",
+    "subgraph",
+    "plugin"
+  ]
+}
