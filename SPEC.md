@@ -1,137 +1,183 @@
-# Mermaid Subgraph Collapse — Interop State Spec
+# Mermaid Subgraph Collapse — Examples & Spec
 
-**Status:** draft v0.1
-**Scope:** flowchart diagrams only (`flowchart` / `graph`), subgraph-level collapse
-**Depends on:** mermaid `>=11.17.0` (ships the `id@{ view: collapsed | expanded }` metadata syntax — see [Flowcharts Syntax](https://mermaid.js.org/syntax/flowchart.html) and [PR #7785](https://github.com/mermaid-js/mermaid/pull/7785))
+This doc is for a human to read top to bottom, in order. Start with the code. The "spec" at the end is just rules extracted from what you just saw — not the other way around.
 
-## 1. Why this exists
+## 1. A plain flowchart
 
-Mermaid core (as of 11.17.x) can render a subgraph as collapsed if you author `subgraphId@{ view: collapsed }` in the diagram source. It has no notion of:
+```mermaid
+flowchart TD
+  Start --> mySub
+  subgraph mySub["Details"]
+    A --> B --> C
+  end
+  mySub --> End
+```
 
-- a *viewer* clicking to toggle that state at runtime,
-- *remembering* what a viewer last chose, across reloads or across viewers.
+Nothing new here. `mySub` is the subgraph's **id** (`Details` is just its display title). That id is going to matter for everything below — an unnamed subgraph (`subgraph Details` with no separate id, or a subgraph written as just a quoted title) can't be targeted by anything that follows.
 
-Those two things are currently owned by whatever wraps mermaid (a plugin today; conceivably a native kernel later). This spec defines the **contract** between "the thing that stores/toggles state" and "the thing that renders a diagram given that state" so that:
+## 2. Upstream mermaid already does static collapse — this needs no plugin
 
-- a v0.1 plugin (text-rewrite + full re-render, see [README.md](README.md)) and
-- a hypothetical future native implementation (incremental re-layout, no text rewriting)
+Add one line, and mermaid `>=11.17.0` renders `mySub` as a single compact node instead of expanding `A --> B --> C`:
 
-can both be built against the same schema, and diagrams / stored state are portable between them. Nothing here requires changes to mermaid core — it's a layer *around* the existing `view:` syntax.
+```mermaid
+flowchart TD
+  Start --> mySub
+  subgraph mySub["Details"]
+    A --> B --> C
+  end
+  mySub --> End
+  mySub@{ view: collapsed }
+```
 
-## 2. Terminology
+This is real, existing mermaid syntax ([Flowcharts Syntax](https://mermaid.js.org/syntax/flowchart.html), shipped in [PR #7785](https://github.com/mermaid-js/mermaid/pull/7785)) — the author is declaring "start collapsed" at write time. Edges crossing `mySub`'s boundary (`Start --> mySub`, `mySub --> End`) redirect to the compact node; the edges entirely inside it (`A-->B`, `B-->C`) just aren't drawn. Nobody clicked anything — this is baked into the diagram source, same for every viewer, forever.
 
-| Term | Meaning |
-|---|---|
-| **Authored source** | The flowchart text as written by a human/CMS, *before* any collapse override is applied. Treated as immutable input for a given render call. |
-| **Subgraph id** | The explicit id a subgraph is given (`subgraph mySub["Title"]`). Required — collapse state cannot target an unnamed subgraph. |
-| **Diagram id** | A stable identifier for "this diagram", independent of collapse state. See §3. |
-| **Collapse state** | A per-(diagramId, subgraphId) boolean, owned by a storage adapter, not by the diagram text. |
-| **Viewer** | Whoever is looking at the rendered diagram. State may be global (shared) or per-viewer — the schema supports both; which one you use is a product decision, not a spec decision. |
+**Everything past this point is what this package adds on top.** Nothing above needed a plugin.
 
-## 3. Diagram identity
+## 3. What the plugin adds: a viewer clicks, and it's remembered
 
-State is keyed by `(diagramId, subgraphId)`. `diagramId` MUST be stable across renders of "the same diagram" and MUST NOT change just because collapse state changed.
+```ts
+import mermaid from 'mermaid';
+import { renderCollapsible, createLocalStorageAdapter } from 'mermaid-collapse-state';
 
-Two ways to get one, in priority order:
+const authoredSource = `
+flowchart TD
+  Start --> mySub
+  subgraph mySub["Details"]
+    A --> B --> C
+  end
+  mySub --> End
+`; // note: no @{ view: ... } line — nobody has decided anything yet
 
-1. **Explicit id** — if the diagram has YAML frontmatter with an `id` field, use it verbatim:
-   ```
-   ---
-   id: onboarding-flow
-   ---
-   flowchart TD
-   ...
-   ```
-2. **Content hash** — otherwise, hash the *authored source* (the string as received by `render()`, before this library injects anything). v0.1 uses a non-cryptographic hash (see `src/identity.ts`) — collision resistance is not a security requirement here, only stability.
+await renderCollapsible(document.getElementById('diagram'), authoredSource, {
+  mermaid,
+  adapter: createLocalStorageAdapter(),
+});
+```
 
-**Rule:** implementations MUST hash/derive the id from the authored source only, never from a source string this library has already rewritten. This is why "authored source" is defined as immutable input — see §5.
+First render: no stored state exists yet, so it renders exactly like §1 — fully expanded.
 
-## 4. State object schema
+**A viewer clicks the "Details" subgraph.** Here's what actually happens, in order — this is the real output captured while testing this against mermaid `11.17.2` in a browser, not a hypothetical:
 
-```jsonc
+**a. This JSON gets written** (to `localStorage`, via the adapter):
+
+```json
 {
   "specVersion": "0.1",
-  "diagramId": "onboarding-flow",       // see §3
-  "subgraphId": "mySub",                 // matches the subgraph's declared id
+  "diagramId": "hash:12o4ffl",
+  "subgraphId": "mySub",
   "collapsed": true,
-  "updatedAt": "2026-08-31T12:00:00.000Z", // ISO 8601
-  "viewerId": null,                      // optional — null/omitted = shared/global state
-  "source": "user"                       // "user" (explicit toggle) | "default" (author-set initial state)
+  "updatedAt": "2026-09-01T01:10:32.793Z",
+  "viewerId": null,
+  "source": "user"
 }
 ```
 
-- One object per `(diagramId, subgraphId[, viewerId])` tuple.
-- `source: "default"` records let a renderer distinguish "nobody has touched this yet, falling back to what the author wrote in `view:`" from "a viewer explicitly expanded/collapsed it" — useful if you ever want a "reset to author default" action.
-- Absence of a record for a given subgraph means: **use whatever the authored source says** (`view: expanded` if unspecified, `view: collapsed` if the author wrote it).
+**b. The library re-derives the text mermaid actually renders next** — same authored source from step 3, plus one appended line:
 
-## 5. Storage adapter interface
+```
+flowchart TD
+  Start --> mySub
+  subgraph mySub["Details"]
+    A --> B --> C
+  end
+  mySub --> End
+mySub@{ view: collapsed }
+```
+
+That's exactly §2's syntax — the plugin produced it, the viewer never saw or wrote mermaid syntax directly.
+
+**c. `mermaid.render()` runs on that text.** `mySub` collapses to a single node, same as §2.
+
+**Viewer clicks again** (now clicking the collapsed stand-in node) → a new JSON is written:
+
+```json
+{
+  "specVersion": "0.1",
+  "diagramId": "hash:12o4ffl",
+  "subgraphId": "mySub",
+  "collapsed": false,
+  "updatedAt": "2026-09-01T01:10:33.794Z",
+  "viewerId": null,
+  "source": "user"
+}
+```
+
+→ next render's appended line becomes `mySub@{ view: expanded }` → subgraph is back.
+
+**Reload the page** → the stored JSON is still there → first render already picks it up → whatever state the viewer left it in is what they see again.
+
+## 4. Rules this example implies
+
+Each of these is just naming something you already saw above.
+
+- **A subgraph needs an explicit id to be collapsible-by-a-click at all** — that's `mySub` in §1. This isn't a plugin limitation, it's inherited straight from upstream's `id@{ view: ... }` syntax in §2.
+- **The diagram's identity (`diagramId`) is computed from the §3 authored source — before step (b)'s rewrite, never after.** That's why clicking never changes `diagramId`: `hash:12o4ffl` is the same in both JSON blobs above. (Code: [identity.ts](src/identity.ts). If you compute it from the *rewritten* text instead, every toggle would look like a different diagram and state would never be found again on the next click — this is the one mistake that breaks everything else.)
+- **Collapse state lives outside the diagram text, full stop.** You will never find `"collapsed": true` anywhere inside a `.mmd` file — it only exists in whatever the adapter is backed by (`localStorage` in this example). The authored source in step 3 is identical before and after every click.
+- **The rewrite replaces, never appends, a second `@{ view: ... }` line for the same id.** If the diagram already had an authored `mySub@{ view: expanded }` line, clicking to collapse it would edit that line in place, not add a second, conflicting statement for `mySub`. (Code: [rewrite.ts](src/rewrite.ts) — see the "replaces an existing metadata line" test.)
+- **No stored state = fall back to whatever §1/§2 already said.** If the author already wrote `view: collapsed` and nobody has clicked yet, it renders collapsed — the plugin doesn't silently override an author's explicit default.
+
+## 5. Reference (for implementing against this, not for reading first)
+
+If you're building a second implementation of this contract (e.g. a native, incrementally-relaid-out renderer instead of this package's full-rewrite approach) — match these, and diagrams/state stay portable between the two. If you're just using the package, you don't need this section; §1–4 already told you everything that matters.
+
+### Diagram identity
+
+Priority order:
+1. YAML frontmatter `id:` field, if present, used verbatim.
+2. Otherwise, a hash of the authored source (§3's rule above — pre-rewrite, always).
+
+### State object schema
+
+```ts
+interface CollapseState {
+  specVersion: '0.1';
+  diagramId: string;    // §3 rule
+  subgraphId: string;   // must match an id from the diagram, e.g. "mySub"
+  collapsed: boolean;
+  updatedAt: string;    // ISO 8601
+  viewerId?: string | null; // null/omitted = shared/global state, not per-viewer
+  source: 'user' | 'default'; // "user" = explicit click, "default" = author's initial view: value
+}
+```
+
+### Storage adapter interface
 
 ```ts
 interface CollapseStateAdapter {
   get(diagramId: string, subgraphId: string, viewerId?: string): Promise<CollapseState | null>;
   set(state: CollapseState): Promise<void>;
   list(diagramId: string, viewerId?: string): Promise<CollapseState[]>;
-  subscribe?(diagramId: string, cb: (state: CollapseState) => void): () => void; // optional, for live multi-viewer sync
+  subscribe?(diagramId: string, cb: (state: CollapseState) => void): () => void; // optional; for future live multi-viewer sync
 }
 ```
 
-v0.1 ships a `localStorageAdapter` (per-browser, per-viewer by construction) and a `memoryAdapter` (tests / SSR). A server-backed adapter (shared state across viewers) is a v0.2 concern — the interface is already shaped for it (`viewerId` optional, `subscribe` optional) so it's additive, not a breaking change.
+v0.1 ships `createLocalStorageAdapter()` (used above) and `createMemoryAdapter()` (tests/SSR). A server-backed adapter for state shared across viewers is additive later — nothing here needs to change to add one.
 
-## 6. Event contract
+### Event contract
 
-The renderer dispatches a `CustomEvent` on the container element whenever a viewer requests a toggle, **before** state is written — this lets a host app veto or intercept:
+Dispatched on the render container as `CustomEvent`s, namespaced `mermaid-collapse:*` specifically so a future native implementation can emit the same events and existing listeners don't need to change:
 
-```ts
-container.dispatchEvent(new CustomEvent('mermaid-collapse:toggle', {
-  bubbles: true,
-  composed: true,
-  detail: { diagramId, subgraphId, nextCollapsed } // nextCollapsed = the state it's about to become
-}))
-```
+- `mermaid-collapse:toggle` — fired before the state write, `detail: { diagramId, subgraphId, nextCollapsed }`. A host app can listen and veto (e.g. `event.preventDefault()` — not currently checked by this package, but reserved).
+- `mermaid-collapse:change` — fired after re-render completes, `detail: { diagramId, subgraphId, collapsed }`.
 
-and again **after** re-render completes:
+### Where a text-rewrite implementation (this package) and a hypothetical native one would differ
 
-```ts
-container.dispatchEvent(new CustomEvent('mermaid-collapse:change', {
-  bubbles: true,
-  composed: true,
-  detail: { diagramId, subgraphId, collapsed }
-}))
-```
+Both must match everything above. They differ only in how a stored override becomes a rendered diagram:
 
-Event names are namespaced (`mermaid-collapse:*`) specifically so a future native implementation can emit the *same* events and existing host-app listeners keep working unchanged.
-
-## 7. Render contract (how the pieces compose)
-
-```
-authoredSource ──┐
-                 ├─► effectiveSource = applyOverrides(authoredSource, overrides)
-overrides ───────┘        │
- (from adapter.list())    ▼
-                    mermaid.render(id, effectiveSource) ──► SVG
-```
-
-`applyOverrides` never mutates `authoredSource`; it derives a fresh string every call. See §8 for what a v0.1 (text-rewrite) implementation of `applyOverrides` looks like, and why a native kernel wouldn't need this step at all.
-
-## 8. Two conforming implementations
-
-| | v0.1 plugin (this repo) | hypothetical native kernel |
+| | this package (v0.1) | hypothetical native kernel |
 |---|---|---|
-| Layers 3–6 (identity, schema, storage, events) | implemented as-is | implemented as-is, **unchanged** |
-| Layer 7 `applyOverrides` | string rewrite of `id@{ view: ... }` lines, then a full `mermaid.render()` pass | mutates an internal graph object directly, re-lays-out only the affected subtree |
-| Perf on toggle | full reparse + layout + redraw | incremental — no reparse |
-| Animation | none (v0.1) | possible, since node positions are known before/after |
+| Mechanism | inject/replace `@{ view: ... }` lines in text, full `mermaid.render()` | mutate an internal graph object, re-layout only the affected subtree |
+| Cost per toggle | full reparse + layout + redraw | incremental |
+| Animation | none | possible (positions known before/after) |
 
-Both are "correct" per this spec as long as layers 3–6 match. A diagram + its stored state should look and behave identically whichever one renders it.
+### Open questions before calling any of this v1.0
 
-## 9. Non-goals for v0.1
+- Does mermaid's parser tolerate two `id@{...}` statements for the same id (later wins), or error? §4's "replace, don't append" rule sidesteps needing to know — but it's still unconfirmed which way mermaid actually behaves.
+- Is a non-cryptographic hash for `diagramId` (see identity.ts) good enough long-term, given the only failure mode of a collision is a wrong remembered collapse state, not a security issue?
 
-- Diagram types other than flowchart (sequence/state/mindmap have no analogous `view:` primitive upstream yet).
-- Nested subgraph partial-state resolution beyond mermaid core's own rule ("collapse resolves to the outermost collapsed ancestor" — see [Discussion #6377](https://github.com/orgs/mermaid-js/discussions/6377)).
-- Animated transitions between states.
-- Multi-viewer live sync (the `subscribe` hook exists for this later, unimplemented in v0.1's shipped adapters).
+### Non-goals for v0.1
 
-## 10. Open questions before calling this v1.0
-
-- Does mermaid's parser accept two `id@{...}` statements for the same id (later wins) or error on duplicate definition? v0.1's rewrite logic sidesteps this by always replacing the existing line rather than appending a duplicate — but this should be confirmed against real mermaid output rather than assumed. Track in [README.md](README.md) known-risks.
-- Should `diagramId` collisions across totally unrelated diagrams (hash collision) matter enough to warrant a cryptographic hash instead of a fast one? Leaning no for v0.1 given the failure mode is cosmetic (wrong remembered collapse state), not a security issue — revisit if that changes.
+- Diagram types other than flowchart (no analogous `view:` primitive upstream for sequence/state/mindmap yet).
+- Nested subgraph partial-state beyond mermaid core's own rule (collapse resolves to the outermost collapsed ancestor — see [Discussion #6377](https://github.com/orgs/mermaid-js/discussions/6377)).
+- Animated transitions.
+- Multi-viewer live sync (the `subscribe` hook exists for this later; unimplemented in v0.1's shipped adapters).

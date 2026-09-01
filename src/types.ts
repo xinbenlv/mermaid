@@ -1,5 +1,6 @@
 /**
- * Core data types shared across this package. Mirrors SPEC.md §4 —
+ * Core data types shared across this package. Mirrors SPEC.md's worked
+ * example in §3 and "Reference → State object schema" —
  * keep the two in sync; SPEC.md is the source of truth for *why* the
  * shape looks like this.
  */

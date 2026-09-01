@@ -1,11 +1,13 @@
 /**
- * Layer 7 (v0.1 flavor) — SPEC.md §7-8.
+ * Implements SPEC.md §3(b) and the "replace, don't append" rule from
+ * §4 — see SPEC.md's "Reference → text-rewrite vs native kernel" table
+ * for how a different implementation could do this step differently.
  *
  * Turns (authoredSource, overrides) into an "effective source" mermaid
  * can render, by injecting/replacing `id@{ view: ... }` statements.
  * Never mutates authoredSource; always derives a fresh string.
  *
- * Known risk (see SPEC.md §10): this assumes mermaid's parser is fine
+ * Known risk (see SPEC.md "Reference → Open questions"): this assumes mermaid's parser is fine
  * with us *replacing* an existing `id@{ view: ... }` line rather than
  * appending a second, duplicate statement for the same id. Replacing
  * is the safer choice regardless of how mermaid actually handles

@@ -1,5 +1,6 @@
 /**
- * Diagram identity — SPEC.md §3.
+ * Diagram identity — SPEC.md §4's "diagramId computed pre-rewrite" rule,
+ * detailed in "Reference → Diagram identity".
  *
  * Rule this file exists to enforce: diagramId must be derived from the
  * *authored* source only, and must be stable across toggles. Callers
@@ -11,7 +12,7 @@ const YAML_ID_FIELD_RE = /^\s*id\s*:\s*(.+?)\s*$/m;
 
 /**
  * FNV-1a, 32-bit. Not cryptographic — collision resistance isn't a
- * security requirement here (see SPEC.md §10), only stability across
+ * security requirement here (see SPEC.md "Reference → Open questions"), only stability across
  * calls with the same input.
  */
 function fnv1a(input: string): string {

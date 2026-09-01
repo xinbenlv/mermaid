@@ -1,5 +1,5 @@
 /**
- * SPEC.md §6. Namespaced deliberately, so a future native implementation
+ * SPEC.md "Reference → Event contract". Namespaced deliberately, so a future native implementation
  * can emit the same events and existing listeners keep working.
  */
 

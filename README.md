@@ -4,7 +4,7 @@ Click-to-collapse subgraphs for [Mermaid](https://mermaid.js.org/) flowcharts, w
 
 > Provisional package/project name — not affiliated with, or endorsed by, the Mermaid or Mermaid Chart projects. Naming is deliberately kept in the standard "plugin-for-X" pattern rather than anything that could read as an official product.
 
-Read [SPEC.md](SPEC.md) first — it defines the state schema and event contract this package implements, specifically so a future native (non-text-rewrite) implementation could be built against the same contract without breaking existing integrations.
+Read [SPEC.md](SPEC.md) first — it walks through a real example (plain flowchart → mermaid's own static `view: collapsed` → what clicking actually writes and re-renders), then extracts the state schema and event contract from that example, specifically so a future native (non-text-rewrite) implementation could be built against the same contract without breaking existing integrations.
 
 ## How it works, in one paragraph
 
@@ -42,7 +42,7 @@ v0.1, unpublished. Pure-logic pieces (`identity`, `rewrite`, storage adapters) a
 
 1. **Click-target DOM matching is a heuristic.** ✅ Verified against mermaid `11.17.2` (loaded via the `mermaid@11` CDN tag, current latest as of this writing): a subgraph `mySub` renders as `<g class="cluster" id="{renderId}-mySub">`, and once collapsed the same subgraph re-renders as a plain node whose id also contains `mySub` — so the `.includes(known)` substring match in `resolveClickedSubgraphId` correctly catches clicks on both the expanded cluster and the collapsed stand-in node. Full click → collapse → click → expand round trip confirmed end to end via `examples/basic.html`, including that the collapsed state is written to and read back from `localStorage` correctly. **Not yet confirmed:** older mermaid versions, or nested subgraphs (only a single, unnested subgraph has been tested).
 2. **Duplicate `id@{ view: ... }` statement handling is assumed, not confirmed.** `rewrite.ts` always replaces an existing metadata line for a given id rather than appending a second one, specifically to avoid finding out the hard way whether mermaid's parser errors on duplicate definitions. Worth confirming either way.
-3. **No animation, no incremental layout.** Every toggle is a full reparse + relayout + redraw. Fine for small-to-medium diagrams; will visibly "flash" on very large ones. See SPEC.md §8 for why that's a text-rewrite-approach limitation, not a fundamental one.
+3. **No animation, no incremental layout.** Every toggle is a full reparse + relayout + redraw. Fine for small-to-medium diagrams; will visibly "flash" on very large ones. See SPEC.md's "Reference → text-rewrite vs native kernel" table for why that's a limitation of this approach, not a fundamental one.
 4. **Flowchart only.** Sequence/state/mindmap diagrams have no analogous `view:` primitive upstream, so this doesn't apply to them.
 
 ## Development

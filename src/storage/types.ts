@@ -1,7 +1,7 @@
 import type { CollapseState } from '../types.js';
 
 /**
- * SPEC.md §5. `subscribe` is optional — only adapters that support
+ * SPEC.md "Reference → Storage adapter interface". `subscribe` is optional — only adapters that support
  * live multi-viewer sync need implement it (none of the v0.1 shipped
  * adapters do; both are single-process).
  */
