@@ -116,7 +116,40 @@ Each of these is just naming something you already saw above.
 - **The rewrite replaces, never appends, a second `@{ view: ... }` line for the same id.** If the diagram already had an authored `mySub@{ view: expanded }` line, clicking to collapse it would edit that line in place, not add a second, conflicting statement for `mySub`. (Code: [rewrite.ts](src/rewrite.ts) — see the "replaces an existing metadata line" test.)
 - **No stored state = fall back to whatever §1/§2 already said.** If the author already wrote `view: collapsed` and nobody has clicked yet, it renders collapsed — the plugin doesn't silently override an author's explicit default.
 
-## 5. Reference (for implementing against this, not for reading first)
+## 5. Nested subgraphs
+
+Yes, these happen — a subgraph can contain another subgraph, and each level needs its own independent collapse state. Tested live against mermaid `11.17.2`, not assumed:
+
+```mermaid
+flowchart TD
+  subgraph outer["Outer"]
+    subgraph inner["Inner"]
+      A --> B
+    end
+    inner --> C
+  end
+  Start --> outer --> End
+```
+
+Rendering all four combinations of `outer@{ view: ... }` / `inner@{ view: ... }` — real output, captured by calling `mermaid.render()` directly and inspecting the SVG:
+
+| `outer` | `inner` | result |
+|---|---|---|
+| expanded | expanded | both render as `<g class="cluster">` — normal nested rendering |
+| **collapsed** | expanded | zero `.cluster` elements at all — `inner` disappears along with everything else inside `outer`. No error. |
+| expanded | **collapsed** | `outer` still renders as `<g class="cluster">`; `inner` renders as `<g class="node">` (a plain node, not a cluster) sitting where the subgraph used to be; `A`/`B` are gone, `C` (outside `inner`, inside `outer`) is untouched. |
+| **collapsed** | **collapsed** | identical output to "collapsed / expanded" above — `outer` collapsing wins, `inner`'s own state has no visible effect while it's buried inside a collapsed ancestor. Still no error from having both metadata lines present at once. |
+
+**This means the "what happens when both are collapsed" question isn't actually open — mermaid core already has a definite, testable answer (outermost collapsed ancestor wins), and nothing about our state model needs to know that rule exists.** `applyOverrides` just emits whichever `@{ view: ... }` lines have stored overrides, for however many subgraphs, at however much nesting — mermaid composes them. Zero extra logic required. (This replaces an earlier, more hedgy note in this doc that treated this as unverified — it's been run now.)
+
+**Click targeting also needed no changes, for a reason that wasn't obvious going in:** mermaid does *not* nest `inner`'s `<g>` inside `outer`'s `<g>` in the DOM, even though it's visually inside it — `outerEl.contains(innerEl)` is `false`; they're siblings, positioned by coordinates. That initially looks like it'd break `resolveClickedSubgraphId`'s "walk up from the click target" approach, but it doesn't: `inner`'s own label/rect are still children of `inner`'s own `<g id="...-inner">`, so a click there hits that `<g>` first while walking up, before it could ever reach a sibling. Clicking `inner` resolves to `inner`; clicking `outer`'s own boundary (not on `inner`) resolves to `outer`. No crosstalk, verified, no code changes needed.
+
+What's genuinely still open after this:
+- Only 2 levels of nesting have been tested — not 3+.
+- Id-substring collision gets a little more likely to bite as diagrams grow more subgraphs (e.g. an id `sub` is a substring of a sibling id `subOuter`) — this was already a latent risk in `resolveClickedSubgraphId`'s `.includes()` check before nesting entered the picture; nesting doesn't introduce it so much as give you more ids to accidentally collide.
+- No "collapse all" / "expand all" convenience — right now toggling is strictly one subgraph at a time, however deep. A cascading helper would be new code on top of what exists, not something nesting forces.
+
+## 6. Reference (for implementing against this, not for reading first)
 
 If you're building a second implementation of this contract (e.g. a native, incrementally-relaid-out renderer instead of this package's full-rewrite approach) — match these, and diagrams/state stay portable between the two. If you're just using the package, you don't need this section; §1–4 already told you everything that matters.
 
@@ -178,6 +211,6 @@ Both must match everything above. They differ only in how a stored override beco
 ### Non-goals for v0.1
 
 - Diagram types other than flowchart (no analogous `view:` primitive upstream for sequence/state/mindmap yet).
-- Nested subgraph partial-state beyond mermaid core's own rule (collapse resolves to the outermost collapsed ancestor — see [Discussion #6377](https://github.com/orgs/mermaid-js/discussions/6377)).
+- Nesting beyond 2 levels deep — see §5, tested only to 2. The composition rule itself (outermost collapsed ancestor wins) is confirmed, matches [Discussion #6377](https://github.com/orgs/mermaid-js/discussions/6377), and needed no special-case code.
 - Animated transitions.
 - Multi-viewer live sync (the `subscribe` hook exists for this later; unimplemented in v0.1's shipped adapters).
